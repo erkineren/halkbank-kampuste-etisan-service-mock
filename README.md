@@ -9,6 +9,7 @@ Faz 1 olarak yalnız **rezervasyon** akışı kapsanmıştır:
 | `POST /api/EtisanSistem/REZERVASYONLAR` | `GET_PARAM` (`TCKN`, `KART_ID`) | `RET_REZERVASYON_LISTESI` |
 | `POST /api/EtisanSistem/REZERVASYON_EKLE` | `REZERVASYON_EKLE` | `RET_REZERVASYON` |
 | `POST /api/EtisanSistem/REZERVASYON_IPTAL` | `REZERVASYON_IPTAL` | `RET_REZERVASYON` |
+| `POST /api/EtisanSistem/YEMEKHANELER` | `GET_PARAM` (`TCKN`, `KART_ID`) | `RET_YEMEKHANELER` |
 
 Hem `application/json` hem `application/x-www-form-urlencoded` body kabul edilir.
 
@@ -48,11 +49,14 @@ PORT=8080 STATEFUL=false docker compose up -d --build
 `STATEFUL=true` (default) iken `(TCKN, KART_ID)` çiftine göre in-memory bir state tutulur:
 
 - `REZERVASYONLAR` ilk çağrıldığında, default fixture (`data/rezervasyonlar.default.json`) klonlanır.
-- `REZERVASYON_EKLE` çağrıldığında, `EKLEME_CONFIG.SEMA_ID + PERIYOT + GELEN_GUN` üçlüsü ile eşleşen menü öğesi şöyle güncellenir:
+- `REZERVASYON_EKLE` çağrıldığında, `EKLEME_CONFIG.SEMA_ID + PERIYOT + GELEN_GUN` üçlüsü ile eşleşen menü öğesi şöyle güncellenir (gerçek service çıktısıyla bire bir):
   - `REZERVASYONU_VARMI = 1`
-  - `IPTAL_CONFIG = { PERIYOT, ONAY_KODU (rastgele), KART_MIFARE_NO, LOKASYON }`
-  - `EKLEME_CONFIG = { LOKASYON }` (gerçek serviste de bu durumda sadece LOKASYON dolu)
+  - `IPTAL_CONFIG = { PERIYOT, ONAY_KODU (6 haneli numerik), KART_MIFARE_NO, LOKASYON }`
+  - `EKLEME_CONFIG = { PERIYOT:"", AMOUNT:0.0, SEMA_ID:"", LOKASYON:<yemekhane adı>, KART_MIFARE_NO:"", GELEN_GUN:"0001-01-01T00:00:00" }` (.NET default)
+  - `REZERVASYON_UYARI_METIN_SUB = <kurum deadline mesajı>`
+  - `LOKASYON` istekteki `YEMEKHANE_ID`'ye karşılık gelen yemekhane adından çekilir (yemekhaneler.default.json üzerinden).
 - `REZERVASYON_IPTAL` çağrıldığında, `IPTAL_CONFIG.ONAY_KODU` ile eşleşen menü öğesi default'a geri çevrilir.
+- IPTAL response'u `_config.rezIptalSuccessReturnCode` / `rezIptalSuccessReturnDescription` ile yapılandırılır (Pamukkale'de gözlemlenen `RETURN_CODE=0, "İşlem Başarılı"` davranışı default).
 
 `STATEFUL=false` ise her `REZERVASYONLAR` çağrısı default fixture'u döner; `EKLE`/`IPTAL` her zaman success döner ama liste değişmez.
 
@@ -68,7 +72,9 @@ Bu endpointler gerçek serviste **yoktur**, sadece mock'a özeldir.
 
 ## Fixture'ı değiştirme
 
-Default rezervasyon listesi `data/rezervasyonlar.default.json` içindedir. Postman'den / gerçek servisten aldığınız çıktıyı bu dosyaya kopyalayıp container'ı restart etmeniz yeterli.
+Default rezervasyon listesi `data/rezervasyonlar.default.json`, yemekhane listesi `data/yemekhaneler.default.json` içindedir. Postman'den / gerçek servisten aldığınız çıktıyı bu dosyalara kopyalayıp container'ı restart etmeniz yeterli.
+
+`rezervasyonlar.default.json` dosyasının başında `_config` bloğu vardır — kurum-spesifik mesajları (EKLE success message, deadline message, IPTAL response code/description) buradan değiştirebilirsiniz.
 
 Container'a fixture'ı dışarıdan mount etmek isterseniz:
 
