@@ -13,6 +13,16 @@ Faz 1 olarak yalnız **rezervasyon** akışı kapsanmıştır:
 
 Hem `application/json` hem `application/x-www-form-urlencoded` body kabul edilir.
 
+## API Docs
+
+| URL | Açıklama |
+| --- | --- |
+| `/docs` | Swagger UI (Try it out destekli) |
+| `/openapi.json` | OpenAPI 3.0 JSON spec |
+| `/openapi.yaml` | OpenAPI 3.0 YAML spec |
+
+Deploy: <https://hbk-etisan-mock.etisan.dev/docs>
+
 ## Çalıştırma
 
 ### Yerel (Node 18+)

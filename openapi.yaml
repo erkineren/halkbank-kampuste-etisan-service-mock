@@ -1,0 +1,346 @@
+openapi: 3.0.3
+info:
+  title: Halkbank Kampüste — Etisan Service Mock
+  version: 0.2.0
+  description: |
+    Halkbank Kampüste **Etisan Service** için minimum bağımlılıklı mock server.
+    Gerçek serviste hangi route, request body ve response schema kullanılıyorsa burada da aynısı kullanılır — **sadece host değişir**.
+
+    Faz 1 olarak yalnızca rezervasyon ve yemekhane akışı kapsanmıştır.
+
+    İstek bodyleri hem `application/json` hem `application/x-www-form-urlencoded` olarak gönderilebilir.
+
+servers:
+  - url: https://hbk-etisan-mock.etisan.dev
+    description: Deployed mock
+  - url: http://localhost:3000
+    description: Local
+
+tags:
+  - name: Reservation
+    description: Rezervasyon listesi, ekle, iptal
+  - name: Yemekhane
+    description: Yemekhane listeleri
+  - name: Mock
+    description: Mock-only yardımcı endpointler (gerçek serviste yoktur)
+
+paths:
+  /api/EtisanSistem/REZERVASYONLAR:
+    post:
+      tags: [Reservation]
+      summary: Kullanıcının rezervasyon/menü listesini döner.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GET_PARAM'
+            example:
+              TCKN: "11111111111"
+              KART_ID: 12345
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/GET_PARAM'
+      responses:
+        '200':
+          description: RET_REZERVASYON_LISTESI
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RET_REZERVASYON_LISTESI'
+
+  /api/EtisanSistem/REZERVASYON_EKLE:
+    post:
+      tags: [Reservation]
+      summary: Yemekhane rezervasyonu oluşturur.
+      description: |
+        İstek başarılı olursa, ilgili `REZERVASYONLAR` kaydı (state-ful modda)
+        `REZERVASYONU_VARMI=1` olarak işaretlenir, rastgele 6-haneli `ONAY_KODU` üretilir,
+        `EKLEME_CONFIG` .NET default'larıyla doldurulur.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/REZERVASYON_EKLE_REQ'
+            example:
+              YEMEKHANE_ID: 405
+              KART_ID: 12345
+              TCKN: "11111111111"
+              EKLEME_CONFIG:
+                PERIYOT: "260504"
+                AMOUNT: 25.00
+                SEMA_ID: "211"
+                LOKASYON: ""
+                KART_MIFARE_NO: ""
+                GELEN_GUN: "2026-05-04T00:00:00"
+      responses:
+        '200':
+          description: RET_REZERVASYON
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RET_REZERVASYON'
+
+  /api/EtisanSistem/REZERVASYON_IPTAL:
+    post:
+      tags: [Reservation]
+      summary: Mevcut yemekhane rezervasyonunu iptal eder.
+      description: |
+        Default davranışta success response `{ RETURN_CODE: 0, RETURN_DESCRIPTION: "İşlem Başarılı" }` döner —
+        bu davranış gerçek serviste de gözlemlenmiştir, fixture `_config` bloğundan değiştirilebilir.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/REZERVASYON_IPTAL_REQ'
+            example:
+              YEMEKHANE_ID: 405
+              KART_ID: 12345
+              TCKN: "11111111111"
+              IPTAL_CONFIG:
+                PERIYOT: "260504"
+                ONAY_KODU: "364273"
+                KART_MIFARE_NO: ""
+                LOKASYON: "ACIPAYAM MYO"
+      responses:
+        '200':
+          description: RET_REZERVASYON
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RET_REZERVASYON'
+
+  /api/EtisanSistem/YEMEKHANELER:
+    post:
+      tags: [Yemekhane]
+      summary: Kartın bağlı olduğu kurumdaki yemekhane listesini döner.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GET_PARAM'
+            example:
+              TCKN: "11111111111"
+              KART_ID: 12345
+      responses:
+        '200':
+          description: RET_YEMEKHANELER
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RET_YEMEKHANELER'
+
+  /health:
+    get:
+      tags: [Mock]
+      summary: Healthcheck
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+
+  /__mock/state:
+    get:
+      tags: [Mock]
+      summary: In-memory state'i (TCKN_KARTID → MENU[]) döner.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/MENU'
+
+  /__mock/reset:
+    post:
+      tags: [Mock]
+      summary: Tüm in-memory state'i temizler.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  cleared:
+                    type: boolean
+
+components:
+  schemas:
+    GET_PARAM:
+      type: object
+      required: [TCKN, KART_ID]
+      properties:
+        TCKN:
+          type: string
+          example: "11111111111"
+        KART_ID:
+          oneOf: [{ type: integer }, { type: string }]
+          example: 12345
+
+    REZERVASYON_EKLEME_CONFIG:
+      type: object
+      properties:
+        PERIYOT:
+          type: string
+          example: "260504"
+        AMOUNT:
+          type: number
+          format: double
+          example: 25.00
+        SEMA_ID:
+          type: string
+          example: "211"
+        LOKASYON:
+          type: string
+          example: ""
+        KART_MIFARE_NO:
+          type: string
+          example: ""
+        GELEN_GUN:
+          type: string
+          format: date-time
+          example: "2026-05-04T00:00:00"
+
+    REZERVASYON_IPTAL_CONFIG:
+      type: object
+      properties:
+        PERIYOT:
+          type: string
+          example: "260504"
+        ONAY_KODU:
+          type: string
+          example: "364273"
+        KART_MIFARE_NO:
+          type: string
+          example: ""
+        LOKASYON:
+          type: string
+          example: "ACIPAYAM MYO"
+
+    REZERVASYON_EKLE_REQ:
+      type: object
+      required: [TCKN, KART_ID, EKLEME_CONFIG]
+      properties:
+        TCKN:
+          type: string
+        YEMEKHANE_ID:
+          type: integer
+          example: 405
+        KART_ID:
+          type: integer
+        EKLEME_CONFIG:
+          $ref: '#/components/schemas/REZERVASYON_EKLEME_CONFIG'
+
+    REZERVASYON_IPTAL_REQ:
+      type: object
+      required: [TCKN, KART_ID, IPTAL_CONFIG]
+      properties:
+        TCKN:
+          type: string
+        YEMEKHANE_ID:
+          type: integer
+          example: 405
+        KART_ID:
+          type: integer
+        IPTAL_CONFIG:
+          $ref: '#/components/schemas/REZERVASYON_IPTAL_CONFIG'
+        YEMEKHANE:
+          type: string
+          nullable: true
+        TARIH:
+          type: string
+          nullable: true
+        OGUN:
+          type: string
+          nullable: true
+
+    MENU:
+      type: object
+      properties:
+        OGUN: { type: string, example: "Öğlen" }
+        MENU_ADI: { type: string }
+        LOKASYON: { type: string }
+        YEMEK1: { type: string, nullable: true }
+        YEMEK2: { type: string, nullable: true }
+        YEMEK3: { type: string, nullable: true }
+        YEMEK4: { type: string, nullable: true }
+        YEMEK5: { type: string, nullable: true }
+        VAKIT: { type: string, example: "Öğle" }
+        REZERVASYONU_VARMI:
+          type: integer
+          description: "0 = yok, 1 = var, -1 = bugüne rezervasyon eklenemez"
+          example: 0
+        TARIH: { type: string, example: "30.04.2026 00:00:00" }
+        BUGUN: { type: boolean }
+        EKLEME_CONFIG:
+          allOf:
+            - $ref: '#/components/schemas/REZERVASYON_EKLEME_CONFIG'
+          nullable: true
+        IPTAL_CONFIG:
+          allOf:
+            - $ref: '#/components/schemas/REZERVASYON_IPTAL_CONFIG'
+          nullable: true
+        REZERVASYON_UYARI_METIN_BASLIK:
+          type: string
+          nullable: true
+        REZERVASYON_UYARI_METIN_SUB:
+          type: string
+          nullable: true
+
+    YEMEKHANE:
+      type: object
+      properties:
+        YEMEKHANE_ID:
+          type: number
+          example: 405.0
+        YEMEKHANE_ADI:
+          type: string
+          example: "ACIPAYAM MYO"
+
+    RET_REZERVASYON_LISTESI:
+      type: object
+      properties:
+        RETURN_CODE: { type: integer, example: 1 }
+        RETURN_DESCRIPTION: { type: string, example: "Rezervasyon Listesi Başarılı" }
+        RETURN_TABLE:
+          type: array
+          items:
+            $ref: '#/components/schemas/MENU'
+
+    RET_REZERVASYON:
+      type: object
+      properties:
+        RETURN_CODE:
+          type: integer
+          description: "1 = başarılı, 0 = başarısız (NOT: REZERVASYON_IPTAL'de gerçek service başarılı durumda da 0 döner)"
+          example: 1
+        RETURN_DESCRIPTION:
+          type: string
+          example: "Rezervasyon Onaylandı"
+
+    RET_YEMEKHANELER:
+      type: object
+      properties:
+        RETURN_CODE: { type: integer, example: 1 }
+        RETURN_DESCRIPTION: { type: string, example: "İşlem Başarılı." }
+        RETURN_TABLE:
+          type: array
+          items:
+            $ref: '#/components/schemas/YEMEKHANE'

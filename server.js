@@ -2,6 +2,8 @@ const express = require('express');
 const morgan = require('morgan');
 const fs = require('fs');
 const path = require('path');
+const yaml = require('js-yaml');
+const swaggerUi = require('swagger-ui-express');
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const HOST = process.env.HOST || '0.0.0.0';
@@ -20,10 +22,28 @@ const REZ_IPTAL_RC = typeof REZ_CFG.rezIptalSuccessReturnCode === 'number' ? REZ
 const REZ_IPTAL_DESC = REZ_CFG.rezIptalSuccessReturnDescription || 'Rezervasyon İptal Edildi';
 const REZ_DEADLINE_MSG = REZ_CFG.rezDeadlineMessage || null;
 
+const OPENAPI_DOC = yaml.load(
+  fs.readFileSync(path.join(__dirname, 'openapi.yaml'), 'utf8'),
+);
+
 const app = express();
 app.use(morgan('dev'));
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
+
+// Swagger UI + raw spec
+app.get('/openapi.json', (_req, res) => res.json(OPENAPI_DOC));
+app.get('/openapi.yaml', (_req, res) => {
+  res.type('text/yaml').send(yaml.dump(OPENAPI_DOC));
+});
+app.use(
+  '/docs',
+  swaggerUi.serve,
+  swaggerUi.setup(OPENAPI_DOC, {
+    customSiteTitle: 'Etisan Mock — API Docs',
+    swaggerOptions: { persistAuthorization: true },
+  }),
+);
 
 // state[`${TCKN}_${KART_ID}`] = MENU[]
 const state = new Map();
