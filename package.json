@@ -1,0 +1,17 @@
+{
+  "name": "halkbank-kampuste-etisan-service-mock",
+  "version": "0.1.0",
+  "description": "Halkbank Kampüste Etisan Service Mock — same routes / same request / same response schema, only host changes.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "morgan": "^1.10.0"
+  }
+}

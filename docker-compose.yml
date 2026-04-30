@@ -1,0 +1,12 @@
+services:
+  etisan-mock:
+    build: .
+    image: halkbank-kampuste-etisan-service-mock:latest
+    container_name: etisan-mock
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      PORT: 3000
+      HOST: 0.0.0.0
+      STATEFUL: ${STATEFUL:-true}
