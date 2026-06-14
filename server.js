@@ -4,16 +4,24 @@ const fs = require('fs');
 const path = require('path');
 const yaml = require('js-yaml');
 const swaggerUi = require('swagger-ui-express');
+const qr = require('./lib/qr');
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const HOST = process.env.HOST || '0.0.0.0';
 const STATEFUL = (process.env.STATEFUL || 'true').toLowerCase() !== 'false';
+
+// Kampüs Giriş QR — tek sabit key (gerçekte kuruma özel TBL_KURUM_CONFIG.KAMPUS_GIRIS_QR_PRIVATE_KEY).
+// Default, entegrasyon rehberindeki örnek key'dir (bilinen test vektörü ile uyumlu).
+const QR_PRIVATE_KEY =
+  process.env.QR_PRIVATE_KEY ||
+  '0x00000052,0x11221111,0x12345678,0x12345678,0x15645678,0x12345678,0xAAAAAA23,0xFFFFFFDD';
 
 const loadJson = (file) =>
   JSON.parse(fs.readFileSync(path.join(__dirname, 'data', file), 'utf8'));
 
 const REZ_DEFAULT = loadJson('rezervasyonlar.default.json');
 const YEMEKHANELER_DEFAULT = loadJson('yemekhaneler.default.json');
+const DOLULUKLAR_DEFAULT = loadJson('doluluklar.default.json');
 
 const REZ_CFG = REZ_DEFAULT._config || {};
 const REZ_EKLE_SUCCESS_DESC = REZ_CFG.rezEkleSuccessMessage || 'Rezervasyon Onaylandı';
@@ -230,7 +238,115 @@ app.post('/api/EtisanSistem/YEMEKHANELER', (req, res) => {
   });
 });
 
+// POST /api/EtisanSistem/DOLULUKLAR
+app.post('/api/EtisanSistem/DOLULUKLAR', (req, res) => {
+  const body = readBody(req);
+  const tckn = body.TCKN;
+  const kartId = body.KART_ID;
+
+  if (!tckn || kartId === undefined || kartId === null || kartId === '') {
+    return res.json(fail('İşlem Başarısız.'));
+  }
+
+  return res.json({
+    RETURN_CODE: DOLULUKLAR_DEFAULT.RETURN_CODE,
+    RETURN_DESCRIPTION: DOLULUKLAR_DEFAULT.RETURN_DESCRIPTION,
+    RETURN_TABLE: DOLULUKLAR_DEFAULT.RETURN_TABLE,
+  });
+});
+
+// POST /api/EtisanSistem/KAREKOD
+// Yemekhane geçişi: app kamerayla turnikedeki QR'ı okur, buraya gönderir.
+// Bu akış ChaCha kullanmaz (gerçekte dış QR servisi doğrular). Mock: success/fail test için.
+//   - scenario=fail (query veya body)  -> başarısız
+//   - aksi halde                        -> başarılı
+app.post('/api/EtisanSistem/KAREKOD', (req, res) => {
+  const body = readBody(req);
+  const { TCKN, KART_ID, KAREKOD } = body;
+
+  if (!TCKN || KART_ID === undefined || KART_ID === null || KART_ID === '') {
+    return res.json({ RETURN_CODE: 0, RETURN_DESCRIPTION: 'İşlem Başarısız.', RETURN_TABLE: null });
+  }
+
+  const scenario = (req.query.scenario || body.scenario || '').toString().toLowerCase();
+  const failed = scenario === 'fail' || scenario === 'hata' || !KAREKOD;
+
+  if (failed) {
+    return res.json({
+      RETURN_CODE: 0,
+      RETURN_DESCRIPTION: 'Okuma işleminde hata oluştu.',
+      RETURN_TABLE: null,
+    });
+  }
+
+  return res.json({
+    RETURN_CODE: 1,
+    RETURN_DESCRIPTION: 'Okuma işlemi başarılı.',
+    RETURN_TABLE: null,
+  });
+});
+
+// POST /api/EtisanSistem/KampusGirisQrCode
+// Kampüs giriş: app'in GÖSTERDİĞİ ChaCha şifreli QR metnini üretir (turnike okur/çözer).
+app.post('/api/EtisanSistem/KampusGirisQrCode', (req, res) => {
+  const body = readBody(req);
+  const { TCKN, KART_ID } = body;
+
+  if (!TCKN || KART_ID === undefined || KART_ID === null || KART_ID === '') {
+    return res.json({ RETURN_CODE: 0, RETURN_DESCRIPTION: 'İşlem Başarısız.', RETURN_TABLE: null });
+  }
+
+  // Gerçekte plainData = kartın CardNum'u. Mock'ta KART_ID'den deterministik hex üretiyoruz.
+  const plainData = Math.abs(parseInt(KART_ID, 10) || 0).toString(16).toUpperCase();
+  const qrText = qr.generateQr(QR_PRIVATE_KEY, plainData);
+
+  return res.json({
+    RETURN_CODE: 1,
+    RETURN_DESCRIPTION: 'İşlem Başarılı.',
+    RETURN_TABLE: qrText,
+  });
+});
+
 // --- Admin endpoints (mock-only) -------------------------------------------
+
+// GET /__mock/qr/generate?plainData=A431DEEA[&key=0x..,..]
+// Gerçek karta gerek olmadan, istenen ham veriyle geçerli bir kampüs giriş QR'ı üretir.
+app.get('/__mock/qr/generate', (req, res) => {
+  const plainData = (req.query.plainData || 'A431DEEA').toString();
+  const key = (req.query.key || QR_PRIVATE_KEY).toString();
+  try {
+    const qrText = qr.generateQr(key, plainData);
+    return res.json({
+      ok: true,
+      plainData,
+      qr: qrText,
+      ivTimestampUnix: qr.readTimestamp(qrText),
+    });
+  } catch (e) {
+    return res.status(400).json({ ok: false, error: e.message });
+  }
+});
+
+// GET /__mock/qr/decode?qr=<hex>[&key=0x..,..]
+// Bir QR metnini çözer (turnike decrypt davranışının doğrulanması için).
+app.get('/__mock/qr/decode', (req, res) => {
+  const qrText = (req.query.qr || '').toString();
+  const key = (req.query.key || QR_PRIVATE_KEY).toString();
+  if (!qr.isHex(qrText) || qrText.length < 16 || qrText.length % 2 !== 0) {
+    return res.status(400).json({ ok: false, error: 'Geçersiz QR formatı (hex, ≥16, çift uzunluk).' });
+  }
+  try {
+    const ts = qr.readTimestamp(qrText);
+    return res.json({
+      ok: true,
+      plainData: qr.decryptQr(key, qrText),
+      ivTimestampUnix: ts,
+      ageSeconds: Math.floor(Date.now() / 1000) - ts,
+    });
+  } catch (e) {
+    return res.status(400).json({ ok: false, error: e.message });
+  }
+});
 app.post('/__mock/reset', (_req, res) => {
   state.clear();
   res.json({ ok: true, cleared: true });

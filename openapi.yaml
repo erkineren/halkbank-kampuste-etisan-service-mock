@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Halkbank Kampüste — Etisan Service Mock
-  version: 0.2.0
+  version: 0.3.0
   description: |
     Halkbank Kampüste **Etisan Service** için minimum bağımlılıklı mock server.
     Gerçek serviste hangi route, request body ve response schema kullanılıyorsa burada da aynısı kullanılır — **sadece host değişir**.
@@ -20,7 +20,9 @@ tags:
   - name: Reservation
     description: Rezervasyon listesi, ekle, iptal
   - name: Yemekhane
-    description: Yemekhane listeleri
+    description: Yemekhane listeleri ve doluluk oranları
+  - name: Karekod
+    description: Kampüs giriş QR üretimi ve yemekhane geçişi QR doğrulama
   - name: Mock
     description: Mock-only yardımcı endpointler (gerçek serviste yoktur)
 
@@ -133,6 +135,80 @@ paths:
               schema:
                 $ref: '#/components/schemas/RET_YEMEKHANELER'
 
+  /api/EtisanSistem/DOLULUKLAR:
+    post:
+      tags: [Yemekhane]
+      summary: Kurumdaki yemekhanelerin doluluk oranlarını döner.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GET_PARAM'
+            example:
+              TCKN: "11111111111"
+              KART_ID: 12345
+      responses:
+        '200':
+          description: RET_DOLULUKLAR
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RET_DOLULUKLAR'
+
+  /api/EtisanSistem/KAREKOD:
+    post:
+      tags: [Karekod]
+      summary: Yemekhane geçişi — kamerayla okunan turnike QR'ını doğrular.
+      description: >-
+        Gerçek akışta QR doğrulaması dış servistedir (ChaCha kullanılmaz).
+        Mock: default başarılı; `scenario=fail` (query veya body) ya da boş
+        KAREKOD başarısız döner — başarılı/başarısız yollarını test etmek için.
+      parameters:
+        - in: query
+          name: scenario
+          required: false
+          schema: { type: string, enum: [success, fail] }
+          description: Sadece mock — gerçek serviste yoktur.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GET_KAREKOD'
+            example:
+              TCKN: "11111111111"
+              KART_ID: 12345
+              KAREKOD: "92434608672000000036"
+      responses:
+        '200':
+          description: RET_KAREKOD
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RET_KAREKOD'
+
+  /api/EtisanSistem/KampusGirisQrCode:
+    post:
+      tags: [Karekod]
+      summary: Kampüs giriş — kartın gösterdiği ChaCha şifreli QR metnini üretir.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GET_PARAM'
+            example:
+              TCKN: "11111111111"
+              KART_ID: 12345
+      responses:
+        '200':
+          description: GenericResponse<string> (RETURN_TABLE = QR hex metni)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse_String'
+
   /health:
     get:
       tags: [Mock]
@@ -180,6 +256,56 @@ paths:
                     type: boolean
                   cleared:
                     type: boolean
+
+  /__mock/qr/generate:
+    get:
+      tags: [Mock]
+      summary: Gerçek karta gerek olmadan geçerli bir kampüs giriş QR'ı üretir.
+      parameters:
+        - in: query
+          name: plainData
+          schema: { type: string, default: "A431DEEA" }
+        - in: query
+          name: key
+          schema: { type: string }
+          description: Opsiyonel — verilmezse QR_PRIVATE_KEY kullanılır.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  plainData: { type: string }
+                  qr: { type: string }
+                  ivTimestampUnix: { type: integer }
+
+  /__mock/qr/decode:
+    get:
+      tags: [Mock]
+      summary: Bir QR metnini çözer (turnike decrypt davranışı doğrulaması).
+      parameters:
+        - in: query
+          name: qr
+          required: true
+          schema: { type: string }
+        - in: query
+          name: key
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  plainData: { type: string }
+                  ivTimestampUnix: { type: integer }
+                  ageSeconds: { type: integer }
 
 components:
   schemas:
@@ -344,3 +470,66 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/YEMEKHANE'
+
+    DOLULUK:
+      type: object
+      properties:
+        YEMEKHANE_ID:
+          type: number
+          example: 49.0
+        YEMEKHANE_ADI:
+          type: string
+          example: "SAĞLIK BİLİMLERİ FAKÜLTESİ"
+        DOLULUK_ORANI:
+          type: number
+          format: double
+          example: 0.0
+
+    RET_DOLULUKLAR:
+      type: object
+      properties:
+        RETURN_CODE: { type: integer, example: 1 }
+        RETURN_DESCRIPTION: { type: string, example: "İşlem Başarılı." }
+        RETURN_TABLE:
+          type: array
+          items:
+            $ref: '#/components/schemas/DOLULUK'
+
+    GET_KAREKOD:
+      type: object
+      required: [TCKN, KART_ID, KAREKOD]
+      properties:
+        TCKN:
+          type: string
+          example: "11111111111"
+        KART_ID:
+          oneOf: [{ type: integer }, { type: string }]
+          example: 12345
+        KAREKOD:
+          type: string
+          description: Kamerayla okunan QR verisi.
+          example: "92434608672000000036"
+
+    RET_KAREKOD:
+      type: object
+      properties:
+        RETURN_CODE:
+          type: integer
+          description: "1 = Okuma işlemi başarılı, 0 = hata"
+          example: 1
+        RETURN_DESCRIPTION:
+          type: string
+          example: "Okuma işlemi başarılı."
+        RETURN_TABLE:
+          nullable: true
+          example: null
+
+    GenericResponse_String:
+      type: object
+      properties:
+        RETURN_CODE: { type: integer, example: 1 }
+        RETURN_DESCRIPTION: { type: string, example: "İşlem Başarılı." }
+        RETURN_TABLE:
+          type: string
+          description: ChaCha şifreli QR metni (IV + cipher, hex).
+          example: "1CE1D0F557BB82664FBDDA2D6B11E33F"

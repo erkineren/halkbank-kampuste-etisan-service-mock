@@ -2,7 +2,7 @@
 
 Halkbank Kampüste **Etisan Service** için minimum bağımlılıklı, Express tabanlı mock server. Gerçek serviste hangi route, request body ve response schema kullanılıyorsa burada da aynısı kullanılır — **sadece host değişir**.
 
-Faz 1 olarak yalnız **rezervasyon** akışı kapsanmıştır:
+Kapsanan endpointler:
 
 | Endpoint | İstek modeli | Cevap modeli |
 | --- | --- | --- |
@@ -10,6 +10,9 @@ Faz 1 olarak yalnız **rezervasyon** akışı kapsanmıştır:
 | `POST /api/EtisanSistem/REZERVASYON_EKLE` | `REZERVASYON_EKLE` | `RET_REZERVASYON` |
 | `POST /api/EtisanSistem/REZERVASYON_IPTAL` | `REZERVASYON_IPTAL` | `RET_REZERVASYON` |
 | `POST /api/EtisanSistem/YEMEKHANELER` | `GET_PARAM` (`TCKN`, `KART_ID`) | `RET_YEMEKHANELER` |
+| `POST /api/EtisanSistem/DOLULUKLAR` | `GET_PARAM` (`TCKN`, `KART_ID`) | `RET_DOLULUKLAR` |
+| `POST /api/EtisanSistem/KAREKOD` | `GET_KAREKOD` (`TCKN`, `KART_ID`, `KAREKOD`) | `RET_KAREKOD` |
+| `POST /api/EtisanSistem/KampusGirisQrCode` | `CommonRequestParam` (`TCKN`, `KART_ID`) | `GenericResponse<string>` |
 
 Hem `application/json` hem `application/x-www-form-urlencoded` body kabul edilir.
 
@@ -22,6 +25,16 @@ Hem `application/json` hem `application/x-www-form-urlencoded` body kabul edilir
 | `/openapi.yaml` | OpenAPI 3.0 YAML spec |
 
 Deploy: <https://hbk-etisan-mock.etisan.dev/docs>
+
+## Karekod (QR) akışları
+
+İki ayrı QR yönü vardır:
+
+1. **Kampüs girişi — `KampusGirisQrCode`:** Mobil uygulama bir QR **gösterir**, turnike okur/çözer. QR **ChaCha20** (256-bit key / 8-byte IV / 20 round) ile şifrelenir. Mock, `KampusGirisQrEntegrasyonRehberi.md`'deki formatı birebir üretir: `IV(16 hex) + cipher`, IV'nin son 4 byte'ı `(now - 30sn)` UNIX timestamp (little-endian). `plainData` sola `0` ile 16 haneye tamamlanır. **Tek sabit key** kullanılır (`QR_PRIVATE_KEY`, default entegrasyon rehberindeki örnek key).
+2. **Yemekhane geçişi — `KAREKOD`:** Mobil uygulama kamerayla **turnikedeki QR'ı okur** ve bu uca gönderir. Bu akış **ChaCha kullanmaz** (gerçekte doğrulama dış QR servisindedir). Mock, başarılı/başarısız durumlarını test edebilmeniz için davranır:
+   - `scenario=fail` (query veya body) → `{ RETURN_CODE: 0, "Okuma işleminde hata oluştu." }`
+   - aksi halde → `{ RETURN_CODE: 1, "Okuma işlemi başarılı." }`
+   - `KAREKOD` boşsa da başarısız döner.
 
 ## Çalıştırma
 
@@ -77,8 +90,13 @@ PORT=8080 STATEFUL=false docker compose up -d --build
 | `GET  /health` | Healthcheck. |
 | `GET  /__mock/state` | Tüm in-memory state'i JSON olarak döner. |
 | `POST /__mock/reset` | Tüm in-memory state'i temizler. |
+| `GET  /__mock/qr/generate?plainData=A431DEEA[&key=0x..,..]` | Gerçek karta gerek olmadan, istenen ham veriyle geçerli bir kampüs giriş QR'ı üretir (turnike decrypt testi için). |
+| `GET  /__mock/qr/decode?qr=<hex>[&key=0x..,..]` | Bir QR metnini çözer; `plainData`, IV timestamp ve QR yaşını (saniye) döner. |
 
 Bu endpointler gerçek serviste **yoktur**, sadece mock'a özeldir.
+
+> Doğrulama: Port, entegrasyon rehberindeki bilinen test vektörüyle uyumludur —
+> key `0x00000052,…` + `1CE1D0F557BB82664FBDDA2D6B11E33F` → `A431DEEA`.
 
 ## Fixture'ı değiştirme
 
@@ -97,6 +115,6 @@ services:
 
 ## Yapılacaklar (sonraki fazlar)
 
-- Bütün diğer Etisan endpointleri (KULLANICI_*, KARTLAR, AKADEMIK, FIRSATLAR, ATM, Mobilet, Halk Akademi, Kampüs Giriş QR vb.)
-- Senaryo bazlı response (`?scenario=success|fail|timeout`)
+- Diğer Etisan endpointleri (KULLANICI_*, KARTLAR, AKADEMIK, FIRSATLAR, ATM, Mobilet, Halk Akademi vb.)
+- Senaryo bazlı response'un tüm uçlara yayılması (`?scenario=success|fail|timeout`)
 - Persistent state (file/Redis) — şu an sadece process-level memory.
