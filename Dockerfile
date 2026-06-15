@@ -5,6 +5,7 @@ COPY package.json ./
 RUN npm install --omit=dev --no-audit --no-fund
 
 COPY server.js openapi.yaml ./
+COPY lib ./lib
 COPY data ./data
 
 ENV NODE_ENV=production
